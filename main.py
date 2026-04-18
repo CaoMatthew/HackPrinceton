@@ -2,6 +2,8 @@ import pybullet as p
 import pybullet_data
 import time
 
+from scene import scene
+
 # ---------------- SETUP ----------------
 p.connect(p.GUI)
 p.setAdditionalSearchPath(pybullet_data.getDataPath())
@@ -20,14 +22,6 @@ p.setGravity(0, 0, -9.8)
 
 # ---------------- OBJECT ----------------
 mug = p.loadURDF("cube_small.urdf", [0.5, 0, 0.1])
-
-# ---------------- FAKE WORLD MODEL ----------------
-scene = {
-    "mug": {
-        "body": [0.5, 0, 0.1],
-        "handle": [0.5, 0.05, 0.15]
-    }
-}
 
 # ---------------- DEBUG DRAW ----------------
 def draw_point(pos, color=[1, 0, 0]):
