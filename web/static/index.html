@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HACKPRINCETON // CONTROL SURFACE</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="scanlines" aria-hidden="true"></div>
+    <div class="shell">
+      <header class="top-bar">
+        <div class="brand">
+          <h1>Carbon // Control Surface</h1>
+          <p class="sub">
+            Natural language → semantic plan → skill compilation → actuation queue. X-ray panel is
+            authoritative.
+          </p>
+        </div>
+        <div class="pill">LIVE TRACE</div>
+      </header>
+
+      <div class="grid">
+        <section class="panel" aria-label="Command and robotics hook">
+          <div class="panel-header">
+            <span>INPUT // HOOK</span>
+            <span class="status-dot on" title="UI ready"></span>
+          </div>
+          <div class="panel-body">
+            <form id="plan-form">
+              <label class="field" for="task">
+                Operator command
+                <textarea
+                  id="task"
+                  class="cmd"
+                  placeholder="e.g. Push the block forward then nudge it left"
+                  required
+                ></textarea>
+              </label>
+              <div class="row">
+                <button type="submit" class="btn" id="submit-btn">RUN PIPELINE</button>
+                <button type="button" class="btn btn-danger" id="run-sim" title="Runs sim_once.py locally">
+                  RUN LOCAL SIM
+                </button>
+              </div>
+              <label class="chk">
+                <input type="checkbox" id="forward-robot" />
+                Forward compiled plan to robot adapter (HTTP POST JSON)
+              </label>
+              <p class="hint">
+                Pipeline uses the existing <code>llm.gemini_plan</code> → <code>llm.k2_compile</code>
+                chain. Nothing in <code>main.py</code> / <code>actions.py</code> is modified by this UI.
+              </p>
+              <div class="session-wrap" aria-label="Command history this session">
+                <p class="meta-line">SESSION LOG (CHAT)</p>
+                <div id="session-log" class="session-log">
+                  <div class="session-empty">No commands yet.</div>
+                </div>
+              </div>
+            </form>
+
+            <div class="divider"></div>
+
+            <p class="meta-line">ROBOTICS BACKEND (PLUG-IN)</p>
+            <p class="hint">
+              Point this at any HTTP service that accepts JSON: your real arm, ROS bridge, Isaac,
+              factory line OPC-UA shim — the contract is generic.
+            </p>
+            <label class="field" for="adapter-url">
+              Adapter endpoint URL
+              <input
+                id="adapter-url"
+                class="txt"
+                type="url"
+                placeholder="https://your-robot-gateway/v1/plan"
+                autocomplete="off"
+              />
+            </label>
+            <label class="field" for="adapter-headers">
+              Optional headers (JSON object)
+              <textarea id="adapter-headers" class="sm" placeholder='{ "Authorization": "Bearer …" }'></textarea>
+            </label>
+            <label class="chk">
+              <input type="checkbox" id="adapter-enabled" />
+              Enable adapter (requires URL)
+            </label>
+            <div class="row">
+              <button type="button" class="btn" id="save-adapter">COMMIT ADAPTER</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel xray" aria-label="X-ray trace">
+          <div class="panel-header">
+            <span>X-RAY // COGNITIVE TRACE</span>
+            <span class="meta-line">Gemini · K2 · queue · optional TX</span>
+          </div>
+          <div class="xray-toolbar">
+            <span class="hint">Every layer is surfaced. Nothing is “hidden thinking.”</span>
+            <button type="button" class="btn" id="copy-trace">COPY FULL TRACE (JSON)</button>
+          </div>
+          <div class="panel-body xray-body">
+            <div id="xray-empty" class="empty-xray">
+              Awaiting command. The trace will populate top-to-bottom: intake → Gemini plan → K2
+              compilation → parsed actuation lines → optional robot POST receipt.
+            </div>
+            <div id="xray-timeline" class="timeline" hidden></div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
