@@ -18,29 +18,29 @@ gemini_model = genai.GenerativeModel("gemini-2.5-flash")
 # STEP 1: Gemini → Structured Natural Language Plan
 # =========================================================
 def gemini_plan(task: str) -> str:
-    prompt = f"""
-You are a robot task planner for a Franka Panda arm in a simulation.
+    prompt = f"""You are the High-Level Task Planner for a robotic arm.
+Your job is to translate human commands into a strict, numbered sequence of physical robotic actions.
 
-Scene: one cube/block sitting on a table in front of the robot.
+RULES:
+1. Do NOT write code.
+2. Output ONLY a numbered list of actions.
+3. You must enforce robotic safety:
+   - Before grabbing an object, you must "Hover above [object]".
+   - After grabbing an object, you must "Lift [object]" before moving it anywhere else.
+4. Use only these standard verbs: Hover, Drop down to, Grasp, Lift, Move to, Rotate/Flip, Release.
 
-Available robot actions:
-- grasp()          — close gripper on the block
-- lift(height)     — lift the block to a height in metres (e.g. 0.4)
-- place()          — release the block at the current position
-- flip()           — flip the block upside-down
-- push(direction, distance)  — slide the block along the table
-    direction: "forward" (+X away from robot), "left" (-Y), "right" (+Y)
-    distance: metres to slide (e.g. 0.15)
+EXAMPLE:
+User: "Move the cup to the right."
+Output:
+1. Hover above cup.
+2. Drop down to cup.
+3. Grasp cup.
+4. Lift cup.
+5. Move cup to the right.
+6. Release cup.
 
-Rules:
-- Output ONLY a numbered list of steps, nothing else.
-- Each step maps to exactly one action above.
-- "back" is not a valid push direction — use pick-and-place instead.
-- Be explicit: e.g. "Push the block forward 0.15 m" or "Grasp the block".
-- Do NOT write code. Do NOT explain. Do NOT add headers.
-
-Task: {task}
-"""
+User: "{task}"
+Output:"""
     response = gemini_model.generate_content(prompt)
     return response.text.strip()
 
