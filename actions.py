@@ -33,16 +33,39 @@ robot = None
 obj_id = None          # currently tracked object
 endEffectorIndex = 11  # panda_grasptarget link
 grasp_cid = None       # constraint binding object to EE
+_num_joints = 12       # set in init(); used to size null-space IK arrays
+_step_callback = None  # optional per-step hook: fn(step_idx) — set externally for logging
+_motion_phase = ""     # human-readable label for the current motion segment
+
+# ── Null-space IK: bias the solver toward this "elbow-up" rest pose ──────────
+# Joint indices 0-6 = arm, 7-8 = fixed links, 9-10 = fingers, 11 = fixed.
+# J3 (panda_joint4) = -2.356 keeps the elbow strongly raised above the table.
+# J5 (panda_joint6) = 1.571 keeps the wrist clear of the robot body.
+# Padding to 12 covers every joint in franka_panda/panda.urdf.
+_FRANKA_REST   = [0, -0.785, 0, -2.356, 0, 1.571, 0.785, 0, 0, 0.04, 0.04, 0]
+
+# Per-direction base-joint (joint 0) bias.  Rotating the base toward the
+# push side keeps the forearm (link5) elevated and clear of the table.
+#   left  (+Y approach from right, arm must swing left)  → base +0.5 rad
+#   right (-Y approach from left, arm must swing right)  → base -0.5 rad
+_DIR_BASE_BIAS = {"forward": 0.0, "left": 0.5, "right": -0.5}
+_FRANKA_LOWER  = [-2.90, -1.76, -2.90, -3.07, -2.90, -0.02, -2.90,
+                  0, 0, 0.0,  0.0,  0]
+_FRANKA_UPPER  = [ 2.90,  1.76,  2.90, -0.07,  2.90,  3.75,  2.90,
+                  0, 0, 0.04, 0.04,  0]
+_FRANKA_RANGES = [u - l for u, l in zip(_FRANKA_UPPER, _FRANKA_LOWER)]
 
 # Tuned constants
 GRIPPER_OPEN = 0.04          # max finger opening (meters)
 GRIPPER_CLOSED = 0.0         # fully closed position
+GRIPPER_NEAR_CLOSED = 0.005  # near-closed paddle for push (5mm per finger)
 GRIP_FORCE = 5.0             # gentle grip — won't squeeze out small objects
 GRIPPER_FORCE_OPEN = 18.0    # force for opening fingers
 ARM_FORCE = 300              # joint motor force for arm motion
 IK_ITERATIONS = 500          # high iteration IK for precision
 IK_THRESHOLD = 1e-5          # IK residual threshold
-PERP_DOWN_ORN = [math.pi, 0, 0]  # Euler angles for perpendicular-to-ground
+PERP_DOWN_ORN = [math.pi, 0, 0]          # claw pointing straight down
+SIDE_PUSH_ORN = [math.pi, 0, math.pi / 2]  # PERP_DOWN + 90° yaw: wide palm face sideways
 
 
 def init(r, obj=None):
@@ -52,9 +75,10 @@ def init(r, obj=None):
         r: PyBullet body ID of the Franka Panda robot
         obj: PyBullet body ID of the object to manipulate (optional)
     """
-    global robot, obj_id
+    global robot, obj_id, _num_joints
     robot = r
     obj_id = obj
+    _num_joints = p.getNumJoints(r)  # used to size null-space IK arrays
 
 
 def get_object_pos(target_obj=None):
@@ -112,9 +136,18 @@ def move_ee_smooth(target_pos, target_orn, steps=120, sleep=1./240.):
             for j in range(3)
         ]
 
+        # Null-space IK: provide joint limits + rest pose so the solver
+        # prefers the "elbow-up" configuration, keeping all arm links well
+        # above the table surface and away from manipulated objects.
+        # The rest pose (J3=-2.356) biases the elbow strongly upward.
+        n = _num_joints
         jointPoses = p.calculateInverseKinematics(
             robot, endEffectorIndex, interp_pos,
             targetOrientation=target_orn,
+            lowerLimits=_FRANKA_LOWER[:n],
+            upperLimits=_FRANKA_UPPER[:n],
+            jointRanges=_FRANKA_RANGES[:n],
+            restPoses=_FRANKA_REST[:n],
             maxNumIterations=IK_ITERATIONS,
             residualThreshold=IK_THRESHOLD
         )
@@ -127,6 +160,8 @@ def move_ee_smooth(target_pos, target_orn, steps=120, sleep=1./240.):
             )
 
         p.stepSimulation()
+        if _step_callback is not None:
+            _step_callback(i)
         time.sleep(sleep)
 
 
@@ -372,28 +407,39 @@ def place(target_pos):
 
 
 def push(target_obj=None, direction="forward", distance=0.1):
-    """Push/slide an object along a surface using the hand as a paddle.
+    """Push/slide an object along a surface using the hand as a flat paddle.
 
-    The arm navigates to the opposite side of the object, closes the
-    gripper, descends so the hand body contacts the object, then
-    translates horizontally to push it.
+    The wrist is rotated so the gripper tool axis points in the push direction
+    (horizontal orientation) with fingers opening horizontally (parallel to the
+    table surface) for maximum table clearance. The nearly-closed fingers form
+    a flat face that contacts the block squarely at its center height. The
+    entire push stroke stays at a constant Z, parallel to the table.
+
+    "back" (-X) is intentionally unsupported. Pulling an object toward the
+    robot base requires a pick-and-place, not a push.
 
     Args:
         target_obj: PyBullet body ID. If None, uses tracked obj_id.
-        direction: "forward" (+X), "back" (-X), "left" (-Y), "right" (+Y)
+        direction: "forward" (+X), "left" (-Y), "right" (+Y)
         distance: how far to push in meters (default 0.1m)
 
     Direction mapping (world frame):
         forward = +X (away from robot base)
-        back    = -X (toward robot base)
         left    = -Y
         right   = +Y
 
     Design notes:
-        - The hand body (link 8) is 0.065m above link 11
-        - Closed gripper fingers extend ~0.04m below the hand
-        - The whole hand+fingers assembly acts as a flat paddle
-        - Approach from 0.12m away to avoid hitting the block on descent
+        - Wrist oriented so tool Z faces the push direction AND fingers open
+          horizontally (parallel to table) in all cases.  All three share
+          the same pitch (π/2) — only the yaw differs:
+            forward: [0, π/2,    0] — tool Z→+X, fingers→±Y
+            left:    [0, π/2, -π/2] — tool Z→-Y, fingers→±X
+            right:   [0, π/2, +π/2] — tool Z→+Y, fingers→±X
+        - Navigation to the approach point uses PERP_DOWN (elbow-up, same
+          as grasp/flip) to avoid table collisions — wrist rotates to push
+          orientation only once safely parked above the contact column.
+        - Gripper locked at GRIPPER_NEAR_CLOSED (5mm) — solid paddle face
+        - Constant Z throughout the push stroke keeps motion table-parallel
     """
     oid = target_obj if target_obj is not None else obj_id
     actual_pos = get_object_pos(oid)
@@ -401,56 +447,104 @@ def push(target_obj=None, direction="forward", distance=0.1):
         print("ERROR: No object to push")
         return
 
-    # Direction vectors (world frame)
+    # Direction vectors + horizontal wrist orientations.
+    # Each orientation has tool Z pointing in the push direction AND fingers
+    # (tool Y axis) horizontal (±X or ±Y world) so neither finger dips toward
+    # the table surface.
+    #
+    # All three share the same wrist pitch (π/2 tilts tool Z horizontal),
+    # differing only by a yaw that aims the tool at the push direction.
+    # Fingers (tool Y) stay horizontal for all three — no table clearance issues.
+    #   forward: yaw=0      tool Z → +X
+    #   left:    yaw=-π/2   tool Z → -Y
+    #   right:   yaw=+π/2   tool Z → +Y
     dir_map = {
-        "forward": [1, 0],
-        "back":    [-1, 0],
-        "left":    [0, -1],
-        "right":   [0, 1],
+        "forward": ([1,  0], [0, math.pi / 2,  0            ]),
+        "left":    ([0, -1], [0, math.pi / 2, -math.pi / 2  ]),
+        "right":   ([0,  1], [0, math.pi / 2,  math.pi / 2  ]),
     }
     if direction not in dir_map:
-        print(f"ERROR: Unknown direction '{direction}'. Use: forward, back, left, right")
+        print(f"ERROR: Unknown direction '{direction}'. "
+              f"Supported: forward, left, right.  "
+              f"(Use pick+place to move an object backward.)")
         return
 
-    dx, dy = dir_map[direction]
-    approach_offset = 0.12  # clearance from object center
+    dx, dy = dir_map[direction][0]
+    target_orn = p.getQuaternionFromEuler(dir_map[direction][1])
+    perp_down_orn = p.getQuaternionFromEuler(PERP_DOWN_ORN)
+    approach_offset = 0.15
 
     print(f"Pushing object {direction} by {distance:.2f}m")
-    target_orn = p.getQuaternionFromEuler(PERP_DOWN_ORN)
 
-    # 1. Close gripper first (forms a solid paddle)
-    close_gripper(force=GRIPPER_FORCE_OPEN, max_steps=60, min_warmup=0, settle_threshold=5)
+    # Strategy per direction:
+    #
+    # left / right — vertical-claw approach:
+    #   Claw descends from above beside the block (PERP_DOWN), then rotates 90°
+    #   at hover height (SIDE_PUSH_ORN) so the wide palm face contacts the side
+    #   of the block.  Keeps arm in elbow-up posture throughout; zero table
+    #   collisions observed in testing.
+    #
+    # forward — horizontal-wrist approach:
+    #   A vertical approach causes the fingers to sink into the table as the arm
+    #   fully extends in X.  Instead, the wrist rotates to aim the tool-Z axis
+    #   along +X (horizontal), so the fingertip face contacts the block squarely
+    #   like a pool cue.  Approach is from PERP_DOWN; wrist rotates at hover.
+    side_push = direction in ("left", "right")
+    approach_offset = 0.06 if side_push else 0.15
 
-    # 2. Move above the approach point (opposite side of push direction)
-    approach_hover = [
-        actual_pos[0] - dx * approach_offset,
-        actual_pos[1] - dy * approach_offset,
-        actual_pos[2] + 0.15
-    ]
-    move_ee_smooth(approach_hover, target_orn, steps=400)
+    side_push_orn = p.getQuaternionFromEuler(SIDE_PUSH_ORN)
+    push_orn = side_push_orn if side_push else target_orn
 
-    # 3. Descend to contact height
-    # Target link 11 at object center Z. The hand body and closed
-    # fingers extend above this, so the solid parts of the gripper
-    # will be at the object's height and can push it.
-    contact_pos = [
-        actual_pos[0] - dx * approach_offset,
-        actual_pos[1] - dy * approach_offset,
-        actual_pos[2]
-    ]
-    move_ee_smooth(contact_pos, target_orn, steps=300)
+    # 1. Lock gripper in near-closed position — solid flat paddle.
+    global _motion_phase
+    _motion_phase = "gripper_close"
+    for _ in range(80):
+        p.setJointMotorControl2(robot, 9,  p.POSITION_CONTROL,
+                                targetPosition=GRIPPER_NEAR_CLOSED,
+                                force=GRIPPER_FORCE_OPEN)
+        p.setJointMotorControl2(robot, 10, p.POSITION_CONTROL,
+                                targetPosition=GRIPPER_NEAR_CLOSED,
+                                force=GRIPPER_FORCE_OPEN)
+        p.stepSimulation()
+        time.sleep(1. / 240.)
+
+    safe_x = actual_pos[0] - dx * approach_offset
+    safe_y = actual_pos[1] - dy * approach_offset
+
+    # 2a. Navigate to clearance height with PERP_DOWN (elbow-up, same as grasp).
+    _motion_phase = "safe_lift"
+    clearance_z = actual_pos[2] + 0.35
+    move_ee_smooth([safe_x, safe_y, clearance_z], perp_down_orn, steps=480)
+
+    # 2b. Drop to hover height — still PERP_DOWN.
+    _motion_phase = "hover"
+    hover_pos = [safe_x, safe_y, actual_pos[2] + 0.15]
+    move_ee_smooth(hover_pos, perp_down_orn, steps=240)
+
+    # 2c. Rotate wrist to push orientation in-place at hover height.
+    #     Side: PERP_DOWN → SIDE_PUSH_ORN (90° yaw, wide palm face sideways).
+    #     Forward: PERP_DOWN → horizontal target_orn (tool Z → +X).
+    _motion_phase = "wrist_rotate"
+    move_ee_smooth(hover_pos, push_orn, steps=240)
+
+    # 3. Descend straight down to block center Z.
+    _motion_phase = "descend"
+    contact_pos = [safe_x, safe_y, actual_pos[2]]
+    move_ee_smooth(contact_pos, push_orn, steps=300)
     settle(60)
 
-    # 4. Translate through the object in the push direction
+    # 4. Translate in push direction at constant Z (table-parallel stroke).
+    _motion_phase = "push_stroke"
     push_end = [
         contact_pos[0] + dx * (approach_offset + distance),
         contact_pos[1] + dy * (approach_offset + distance),
-        contact_pos[2]
+        contact_pos[2],
     ]
-    move_ee_smooth(push_end, target_orn, steps=600)
+    move_ee_smooth(push_end, push_orn, steps=800)
 
-    # 5. Retreat upward
+    # 5. Retreat upward.
+    _motion_phase = "retreat"
     retreat_pos = [push_end[0], push_end[1], push_end[2] + 0.15]
-    move_ee_smooth(retreat_pos, target_orn, steps=200)
+    move_ee_smooth(retreat_pos, push_orn, steps=200)
 
     print(f"Push complete. Object should have moved {direction} by ~{distance:.2f}m")
