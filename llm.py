@@ -57,6 +57,7 @@ Available functions:
 - grasp(target)
 - lift(height)
 - place(target)
+- flip()
 
 Rules:
 - Only use these functions
@@ -92,6 +93,10 @@ Rules:
 
     # extract response safely
     output = result["choices"][0]["message"]["content"].strip()
+    
+    # Strip <think> tags from K2 Think models
+    import re
+    output = re.sub(r'<think>.*?</think>', '', output, flags=re.DOTALL).strip()
 
     # clean formatting
     output = output.replace("```python", "").replace("```", "").strip()

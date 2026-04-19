@@ -13,12 +13,29 @@ p.setAdditionalSearchPath(pybullet_data.getDataPath())
 plane = p.loadURDF("plane.urdf")
 robot = p.loadURDF("franka_panda/panda.urdf", useFixedBase=True)
 
-#TEST ACTIONS
-actions.init(robot)
+# ---------------- OBJECT ----------------
+table = p.loadURDF("table/table.urdf", [0.7, 0, 0], globalScaling=0.5)
+mug = p.loadURDF("cube_small.urdf", [0.7, 0, 0.35])
 
-actions.move_to("mug.handle")
-actions.grasp("mug.handle")
-actions.lift(0.2)
+# Enable gravity BEFORE actions so the block rests on the ground
+p.setGravity(0, 0, -9.8)
+
+# Let the block settle on the ground plane
+for _ in range(240):
+    p.stepSimulation()
+    time.sleep(1./240.)
+
+# Read the actual resting position of the block
+actual_pos, _ = p.getBasePositionAndOrientation(mug)
+print(f"Block settled at: {[f'{x:.4f}' for x in actual_pos]}")
+
+#TEST ACTIONS
+actions.init(robot, mug)
+
+actions.move_to("mug.body")
+actions.grasp("mug.body")
+actions.lift(0.4)
+actions.flip()
 
 p.resetDebugVisualizerCamera(
     cameraDistance=1.5,
@@ -27,11 +44,8 @@ p.resetDebugVisualizerCamera(
     cameraTargetPosition=[0.5, 0, 0]
 )
 
-p.setGravity(0, 0, -9.8)
+# gravity already set above
 p.setRealTimeSimulation(1)
-
-# ---------------- OBJECT ----------------
-mug = p.loadURDF("cube_small.urdf", [0.5, 0, 0.1])
 
 # ---------------- DEBUG DRAW ----------------
 def draw_point(pos, color=[1, 0, 0]):
@@ -47,8 +61,7 @@ def draw_point(pos, color=[1, 0, 0]):
 draw_point(scene["mug"]["body"], [0, 1, 0])
 draw_point(scene["mug"]["handle"], [1, 0, 0])
 
-# ---------------- INIT ACTIONS ----------------
-actions.init(robot)
+# (init already called above)
 
 # ---------------- EXECUTION ----------------
 def execute_plan(code):
@@ -69,7 +82,8 @@ def execute_plan(code):
             line.startswith("move_to(") or
             line.startswith("grasp(") or
             line.startswith("lift(") or
-            line.startswith("place(")
+            line.startswith("place(") or
+            line.startswith("flip(")
         ):
             plan.append(line)
 
@@ -88,7 +102,8 @@ def execute_plan(code):
                 "move_to": actions.move_to,
                 "grasp": actions.grasp,
                 "lift": actions.lift,
-                "place": actions.place
+                "place": actions.place,
+                "flip": actions.flip
             })
         except Exception as e:
             print("Execution error:", e)
@@ -100,7 +115,7 @@ while True:
     if task.lower() == "q":
         break
 
-    print("\n⏳ Thinking...")
+    print("\nThinking...")
 
     try:
         plan = generate_plan(task)
