@@ -32,8 +32,8 @@ print(f"Block settled at: {[f'{x:.4f}' for x in actual_pos]}")
 #TEST ACTIONS
 actions.init(robot, mug)
 
-actions.move_to("mug.body")
-actions.grasp("mug.body")
+actions.move_to()
+actions.grasp()
 actions.lift(0.4)
 actions.flip()
 
@@ -83,7 +83,8 @@ def execute_plan(code):
             line.startswith("grasp(") or
             line.startswith("lift(") or
             line.startswith("place(") or
-            line.startswith("flip(")
+            line.startswith("flip(") or
+            line.startswith("push(")
         ):
             plan.append(line)
 
@@ -103,7 +104,8 @@ def execute_plan(code):
                 "grasp": actions.grasp,
                 "lift": actions.lift,
                 "place": actions.place,
-                "flip": actions.flip
+                "flip": actions.flip,
+                "push": actions.push
             })
         except Exception as e:
             print("Execution error:", e)
