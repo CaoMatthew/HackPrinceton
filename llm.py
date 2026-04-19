@@ -1,16 +1,13 @@
 import os
+import re
 import requests
 import google.generativeai as genai
-from dotenv import load_dotenv
 import warnings
 warnings.filterwarnings("ignore")
 
-# --- Load environment variables ---
-load_dotenv()
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-K2_API_KEY = os.getenv("K2_API_KEY")
-K2_API_URL = os.getenv("K2_API_URL")
+GEMINI_API_KEY = "AIzaSyACqKTs6AV4NzK5x3dHL8Gn9B6SM6ooBEE"
+K2_API_KEY = os.getenv("K2_API_KEY", "")
+K2_API_URL = os.getenv("K2_API_URL", "")
 
 # --- Configure Gemini ---
 genai.configure(api_key=GEMINI_API_KEY)
@@ -18,57 +15,60 @@ gemini_model = genai.GenerativeModel("gemini-2.5-flash")
 
 
 # =========================================================
-# ⚡ STEP 1: Gemini → Structured Natural Language Plan
+# STEP 1: Gemini → Structured Natural Language Plan
 # =========================================================
 def gemini_plan(task: str) -> str:
     prompt = f"""
-You are a robot task planner.
+You are a robot task planner for a Franka Panda arm in a simulation.
 
-Break the task into clear, numbered steps.
+Scene: one cube/block sitting on a table in front of the robot.
+
+Available robot actions:
+- grasp()          — close gripper on the block
+- lift(height)     — lift the block to a height in metres (e.g. 0.4)
+- place()          — release the block at the current position
+- flip()           — flip the block upside-down
+- push(direction, distance)  — slide the block along the table
+    direction: "forward" (+X away from robot), "left" (-Y), "right" (+Y)
+    distance: metres to slide (e.g. 0.15)
 
 Rules:
-- Be concise
-- Use object names like "mug handle"
-- Be explicit about parts (e.g., handle, top)
-- Do NOT write code
-- Do NOT explain anything
+- Output ONLY a numbered list of steps, nothing else.
+- Each step maps to exactly one action above.
+- "back" is not a valid push direction — use pick-and-place instead.
+- Be explicit: e.g. "Push the block forward 0.15 m" or "Grasp the block".
+- Do NOT write code. Do NOT explain. Do NOT add headers.
 
-Task:
-{task}
+Task: {task}
 """
-
     response = gemini_model.generate_content(prompt)
-    plan_text = response.text.strip()
-
-    return plan_text
+    return response.text.strip()
 
 
 # =========================================================
-# 🧠 STEP 2: K2 → Compile Plan into Function Calls
+# STEP 2: K2 → Compile Plan into Function Calls
 # =========================================================
 def k2_compile(plan_text: str) -> str:
     system_prompt = """
-You are a robot planner.
+You are a robot code compiler. Convert a natural-language numbered plan into
+Python function calls, one per line.
 
-Convert the plan into Python function calls.
-
-Available functions:
-- move_to(target)
-- grasp(target)
-- lift(height)
-- place(target)
-- flip()
+Available functions (exact signatures):
+  grasp()
+  lift(height)          # height in metres, e.g. lift(0.4)
+  place()
+  flip()
+  push(direction, distance)
+    # direction must be one of: "forward", "left", "right"
+    # distance in metres, e.g. push("forward", 0.15)
 
 Rules:
-- Only use these functions
-- Use "mug.handle" format
-- Output ONLY valid Python code
-- One function per line
-- No explanations
+- Output ONLY bare Python function calls, one per line.
+- No imports, no variables, no comments, no explanations.
+- Do not invent function names not listed above.
+- If the plan says "back", translate it to a lift() + place() sequence.
+- Preserve all numeric values exactly as stated in the plan.
 """
-
-    print("K2 URL:", K2_API_URL)
-
     response = requests.post(
         K2_API_URL,
         headers={
@@ -82,25 +82,16 @@ Rules:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": plan_text}
             ],
-            "stream": False  # ✅ IMPORTANT
+            "stream": False
         }
     )
 
     if response.status_code != 200:
         raise Exception(f"K2 API Error: {response.text}")
 
-    result = response.json()
-
-    # extract response safely
-    output = result["choices"][0]["message"]["content"].strip()
-    
-    # Strip <think> tags from K2 Think models
-    import re
+    output = response.json()["choices"][0]["message"]["content"].strip()
     output = re.sub(r'<think>.*?</think>', '', output, flags=re.DOTALL).strip()
-
-    # clean formatting
     output = output.replace("```python", "").replace("```", "").strip()
-
     return output
 
 
