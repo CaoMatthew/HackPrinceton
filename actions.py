@@ -265,6 +265,9 @@ def bind_object_to_ee(target_obj=None):
         [0, 0, 0], local_pos, [0, 0, 0],
         childFrameOrientation=local_orn
     )
+    # Maximise constraint force so the object stays locked to the EE through
+    # any arm motion (carry, flip, lift) until drop() explicitly releases it.
+    p.changeConstraint(grasp_cid, maxForce=2000)
 
 
 def release_object():
@@ -306,26 +309,19 @@ def move_to(target_obj=None):
 
 
 def grasp(target_obj=None):
-    """Descend to an object and grip it with contact detection.
+    """Approach an object from above and grip it with contact detection.
 
-    Sequence:
-        1. Read actual object position from physics
-        2. Descend with perpendicular orientation to object center height
-           (finger pads land ~0.027m above link 11, near object top)
-        3. Settle for 120 steps to let arm converge
-        4. Close gripper with force=5.0 and contact detection
-        5. Bind object to end-effector with a fixed constraint
+    Safe 3-phase approach (same strategy as push):
+        1. safe_lift  — rise to obj_z + 0.45 with PERP_DOWN (clears table/obstacles
+                        regardless of where the arm currently is)
+        2. hover      — descend to obj_z + 0.25 (directly above object, open gripper)
+        3. descend    — descend to obj_z (finger pads land at object top)
+        4. settle     — 120 steps for IK convergence
+        5. close      — grip with contact detection
+        6. bind       — fix object to EE with constraint
 
     Args:
         target_obj: PyBullet body ID. If None, uses tracked obj_id.
-
-    Design notes:
-        - Targets link 11 at object center Z. Finger pads end up at
-          obj_z + 0.027 (near object top). Fingers are wider than the
-          object so they close inward and clamp the upper portion.
-        - force=5.0 gives gentle hold. force=18.0 squeezes objects out.
-        - The fixed constraint ensures the object follows the arm
-          through lift/flip even if finger grip isn't perfectly tight.
     """
     global grasp_cid
     oid = target_obj if target_obj is not None else obj_id
@@ -335,19 +331,26 @@ def grasp(target_obj=None):
         return
 
     print(f"Grasping object at {[f'{x:.3f}' for x in actual_pos]}")
-
-    # Descend: target link 11 at object center
-    target_pos = [actual_pos[0], actual_pos[1], actual_pos[2]]
     target_orn = p.getQuaternionFromEuler(PERP_DOWN_ORN)
-    move_ee_smooth(target_pos, target_orn, steps=600)
+    ox, oy, oz = actual_pos
 
-    # Let arm converge at target
+    # 1. Rise to safe clearance height above the object
+    move_ee_smooth([ox, oy, oz + 0.45], target_orn, steps=480)
+
+    # 2. Open gripper and hover directly above
+    open_gripper()
+    move_ee_smooth([ox, oy, oz + 0.25], target_orn, steps=240)
+
+    # 3. Descend to object centre
+    move_ee_smooth([ox, oy, oz], target_orn, steps=300)
+
+    # 4. Let arm converge
     settle(120)
 
-    # Close and detect contact
-    grip_result = close_gripper()
+    # 5. Close and detect contact
+    close_gripper()
 
-    # Bind object to EE with constraint
+    # 6. Bind object to EE with constraint
     bind_object_to_ee(oid)
 
 
@@ -368,11 +371,20 @@ def lift(height=0.15):
 def flip():
     """Flip the held object 180 degrees by rotating around the X-axis.
 
-    Rotates the end-effector by pi radians around the roll axis while
-    maintaining position. The bound object rotates with it.
+    Guarantees the arm is at a safe flip height (>= 0.65 m EE Z) before
+    rotating, so the swept arc of the object never clips the table.
+    Then rotates pi radians around roll while holding position.
     """
     print("Flipping object...")
     current_pos, current_orn = get_ee_pos()
+
+    # Ensure safe flip clearance — lift to min height if needed
+    FLIP_MIN_Z = 0.65
+    if current_pos[2] < FLIP_MIN_Z:
+        safe_pos = [current_pos[0], current_pos[1], FLIP_MIN_Z]
+        move_ee_smooth(safe_pos, current_orn, steps=300)
+        current_pos = safe_pos
+
     euler = list(p.getEulerFromQuaternion(current_orn))
     euler[0] += math.pi
     target_orn = p.getQuaternionFromEuler(euler)
@@ -380,7 +392,7 @@ def flip():
 
 
 def place(target_pos):
-    """Lower and release an object at a target position.
+    """Lower and release an object at a specific target position.
 
     Sequence:
         1. Move to hover 10cm above target
@@ -394,19 +406,64 @@ def place(target_pos):
     print(f"Placing at {[f'{x:.3f}' for x in target_pos]}")
     target_orn = p.getQuaternionFromEuler(PERP_DOWN_ORN)
 
-    # Hover above
     hover_pos = [target_pos[0], target_pos[1], target_pos[2] + 0.1]
     move_ee_smooth(hover_pos, target_orn, steps=480)
-
-    # Descend
     move_ee_smooth(target_pos, target_orn, steps=400)
 
-    # Release
     open_gripper(steps=80)
     release_object()
 
 
-def push(target_obj=None, direction="forward", distance=0.1):
+def drop():
+    """Open the gripper and release the object at the current arm position.
+
+    No movement — just opens the fingers and removes the constraint.
+    Use this when the LLM says 'release', 'drop', or 'let go'.
+    For placing at a specific location use place(target_pos) instead.
+    """
+    print("Dropping object...")
+    open_gripper(steps=80)
+    release_object()
+
+
+def carry(direction="forward", distance=0.15):
+    """Move a held object horizontally by translating the arm at constant height.
+
+    If no object is currently held (grasp_cid is None), auto-redirects to
+    push() which slides a free object along the table surface instead.
+    This means 'carry' and 'push' are interchangeable from the LLM — the
+    robot picks the right behaviour based on whether it is holding something.
+
+    Args:
+        direction: "forward" (+X), "left" (-Y), "right" (+Y)
+        distance:  metres to travel (default 0.15 m)
+    """
+    if grasp_cid is None:
+        print(f"[carry->push] Object not held -- redirecting to push({direction!r}, {distance})")
+        push(direction, distance)
+        return
+
+    dir_map = {
+        "forward": ( 1,  0),
+        "left":    ( 0, -1),
+        "right":   ( 0,  1),
+    }
+    if direction not in dir_map:
+        print(f"ERROR: Unknown carry direction '{direction}'. Use forward/left/right.")
+        return
+
+    dx, dy = dir_map[direction]
+    current_pos, current_orn = get_ee_pos()
+    target_pos = [
+        current_pos[0] + dx * distance,
+        current_pos[1] + dy * distance,
+        current_pos[2],
+    ]
+    print(f"Carrying {direction} {distance:.2f}m...")
+    move_ee_smooth(target_pos, current_orn, steps=400)
+
+
+def push(direction="forward", distance=0.1, target_obj=None):
     """Push/slide an object along a surface using the hand as a flat paddle.
 
     The wrist is rotated so the gripper tool axis points in the push direction
@@ -441,6 +498,13 @@ def push(target_obj=None, direction="forward", distance=0.1):
         - Gripper locked at GRIPPER_NEAR_CLOSED (5mm) — solid paddle face
         - Constant Z throughout the push stroke keeps motion table-parallel
     """
+    # If an object is currently constrained to the EE the correct action is
+    # carry(), not push().  Redirect automatically so K2 doesn't need to know.
+    if grasp_cid is not None:
+        print(f"[push→carry] Object is held — redirecting to carry({direction!r}, {distance})")
+        carry(direction, distance)
+        return
+
     oid = target_obj if target_obj is not None else obj_id
     actual_pos = get_object_pos(oid)
     if actual_pos is None:

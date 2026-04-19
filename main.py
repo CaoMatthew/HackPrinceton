@@ -32,7 +32,7 @@ p.setRealTimeSimulation(1)
 
 actions.init(robot, block)
 
-VALID_CALLS = ("grasp(", "lift(", "place(", "flip(", "push(")
+VALID_CALLS = ("grasp(", "lift(", "carry(", "drop(", "place(", "flip(", "push(")
 
 # ---------------- EXECUTION ----------------
 def execute_plan(code: str):
@@ -49,10 +49,20 @@ def execute_plan(code: str):
         print("No executable actions found in plan.")
         return
 
+    # Safeguard: bare place() has no args — treat as drop().
+    plan = ["drop()" if line == "place()" else line for line in plan]
+
+    # Enforce drop() always executes last — K2 sometimes puts it before carry().
+    # Releasing mid-air drops the block; it must come after all movement.
+    if "drop()" in plan and plan[-1] != "drop()":
+        plan = [l for l in plan if l != "drop()"] + ["drop()"]
+
     print("\n--- EXECUTING ---")
     ns = {
         "grasp": actions.grasp,
         "lift":  actions.lift,
+        "carry": actions.carry,
+        "drop":  actions.drop,
         "place": actions.place,
         "flip":  actions.flip,
         "push":  actions.push,
