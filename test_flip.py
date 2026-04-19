@@ -38,12 +38,11 @@ p.resetDebugVisualizerCamera(
 
 # --- Run test ---
 actions.init(robot, block)
-actions.move_to()
 actions.grasp()
 actions.lift(0.4)
 actions.flip()
 
-print("\n✓ Flip test complete")
+print("\n[OK] Flip test complete")
 
 # Keep sim alive
 p.setRealTimeSimulation(1)

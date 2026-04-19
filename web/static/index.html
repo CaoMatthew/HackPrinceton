@@ -23,16 +23,38 @@
             authoritative.
           </p>
         </div>
-        <div class="pill">LIVE TRACE</div>
+        <div class="top-right">
+          <!-- GUI status badge — updated by JS -->
+          <div class="gui-status" id="gui-status-badge">
+            <span class="status-dot" id="gui-dot"></span>
+            <span class="gui-status-label" id="gui-status-label">GUI OFFLINE</span>
+          </div>
+          <div class="pill">LIVE TRACE</div>
+        </div>
       </header>
 
       <div class="grid">
-        <section class="panel" aria-label="Command and robotics hook">
+        <!-- LEFT: operator input + session log -->
+        <section class="panel" aria-label="Operator commands and session log">
           <div class="panel-header">
-            <span>INPUT // HOOK</span>
+            <span>OPERATOR // COMMANDS</span>
             <span class="status-dot on" title="UI ready"></span>
           </div>
           <div class="panel-body">
+
+            <!-- GUI lifecycle controls -->
+            <div class="gui-controls">
+              <p class="meta-line">SIMULATION // GUI</p>
+              <div class="row">
+                <button type="button" class="btn btn-start" id="start-gui">▶ START GUI</button>
+                <button type="button" class="btn btn-danger" id="kill-gui" hidden>■ KILL GUI</button>
+              </div>
+              <p class="hint" id="gui-hint">Start the PyBullet window first, then type commands below.</p>
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- Command form -->
             <form id="plan-form">
               <label class="field" for="task">
                 Operator command
@@ -45,42 +67,36 @@
               </label>
               <div class="row">
                 <button type="submit" class="btn" id="submit-btn">RUN PIPELINE</button>
-                <button type="button" class="btn btn-danger" id="run-sim" title="Runs sim_once.py locally">
-                  RUN LOCAL SIM
+                <button type="button" class="btn btn-danger" id="run-sim" disabled
+                  title="Requires GUI to be started first">
+                  SEND TO SIM
                 </button>
               </div>
-              <label class="chk">
-                <input type="checkbox" id="forward-robot" />
-                Forward compiled plan to robot adapter (HTTP POST JSON)
-              </label>
               <p class="hint">
-                Pipeline uses the existing <code>llm.gemini_plan</code> → <code>llm.k2_compile</code>
-                chain. Nothing in <code>main.py</code> / <code>actions.py</code> is modified by this UI.
+                <strong>RUN PIPELINE</strong> — Gemini → K2, populates X-ray trace only.<br/>
+                <strong>SEND TO SIM</strong> — pipes the command to the running GUI (requires START GUI).
               </p>
-              <div class="session-wrap" aria-label="Command history this session">
-                <p class="meta-line">SESSION LOG (CHAT)</p>
-                <div id="session-log" class="session-log">
-                  <div class="session-empty">No commands yet.</div>
-                </div>
-              </div>
             </form>
+
+            <!-- Session log -->
+            <div class="session-wrap" aria-label="Session log">
+              <div class="session-header">
+                <p class="meta-line">SESSION LOG</p>
+                <button type="button" class="btn-ghost" id="clear-log">CLEAR</button>
+              </div>
+              <div id="session-log" class="session-log">
+                <div class="session-empty">Awaiting commands.</div>
+              </div>
+            </div>
 
             <div class="divider"></div>
 
+            <!-- Robot adapter (unused for local demo, wired up for future use) -->
             <p class="meta-line">ROBOTICS BACKEND (PLUG-IN)</p>
-            <p class="hint">
-              Point this at any HTTP service that accepts JSON: your real arm, ROS bridge, Isaac,
-              factory line OPC-UA shim — the contract is generic.
-            </p>
             <label class="field" for="adapter-url">
               Adapter endpoint URL
-              <input
-                id="adapter-url"
-                class="txt"
-                type="url"
-                placeholder="https://your-robot-gateway/v1/plan"
-                autocomplete="off"
-              />
+              <input id="adapter-url" class="txt" type="url"
+                placeholder="https://your-robot-gateway/v1/plan" autocomplete="off" />
             </label>
             <label class="field" for="adapter-headers">
               Optional headers (JSON object)
@@ -96,19 +112,20 @@
           </div>
         </section>
 
+        <!-- RIGHT: X-ray trace -->
         <section class="panel xray" aria-label="X-ray trace">
           <div class="panel-header">
             <span>X-RAY // COGNITIVE TRACE</span>
-            <span class="meta-line">Gemini · K2 · queue · optional TX</span>
+            <span class="meta-line">Gemini · K2 · queue · sim stdout · exit codes</span>
           </div>
           <div class="xray-toolbar">
-            <span class="hint">Every layer is surfaced. Nothing is “hidden thinking.”</span>
+            <span class="hint">Every layer is surfaced. Nothing is "hidden thinking."</span>
             <button type="button" class="btn" id="copy-trace">COPY FULL TRACE (JSON)</button>
           </div>
           <div class="panel-body xray-body">
             <div id="xray-empty" class="empty-xray">
-              Awaiting command. The trace will populate top-to-bottom: intake → Gemini plan → K2
-              compilation → parsed actuation lines → optional robot POST receipt.
+              Awaiting command.<br/>
+              Trace populates top-to-bottom: intake → Gemini plan → K2 compilation → actuation queue → sim stdout + exit code.
             </div>
             <div id="xray-timeline" class="timeline" hidden></div>
           </div>

@@ -39,7 +39,7 @@ p.setRealTimeSimulation(1)
 
 actions.init(robot, block)
 
-VALID_CALLS = ("grasp(", "lift(", "place(", "flip(", "push(")
+VALID_CALLS = ("grasp(", "lift(", "carry(", "drop(", "place(", "flip(", "push(")
 
 
 def execute_plan(code: str):
@@ -59,10 +59,12 @@ def execute_plan(code: str):
     print("\n--- EXECUTING ---")
     ns = {
         "grasp": actions.grasp,
-        "lift": actions.lift,
+        "lift":  actions.lift,
+        "carry": actions.carry,
+        "drop":  actions.drop,
         "place": actions.place,
-        "flip": actions.flip,
-        "push": actions.push,
+        "flip":  actions.flip,
+        "push":  actions.push,
     }
     for line in plan:
         print(f"  >> {line}")
@@ -87,6 +89,8 @@ def main():
         sys.exit(2)
 
     print("\n--- Done. ---")
+    # Keep GUI open for 5 s so the result is visible before the window closes
+    time.sleep(5)
     p.disconnect()
     print("Simulation ended.")
 

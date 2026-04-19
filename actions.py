@@ -426,7 +426,7 @@ def drop():
     release_object()
 
 
-def carry(direction="forward", distance=0.15):
+def carry(direction="forward", distance=0.20):
     """Move a held object horizontally by translating the arm at constant height.
 
     If no object is currently held (grasp_cid is None), auto-redirects to
@@ -444,16 +444,36 @@ def carry(direction="forward", distance=0.15):
         return
 
     dir_map = {
-        "forward": ( 1,  0),
-        "left":    ( 0, -1),
-        "right":   ( 0,  1),
+        "forward":  ( 1,  0),
+        "back":     (-1,  0),
+        "backward": (-1,  0),
+        "left":     ( 0, -1),
+        "right":    ( 0,  1),
     }
     if direction not in dir_map:
-        print(f"ERROR: Unknown carry direction '{direction}'. Use forward/left/right.")
+        print(f"ERROR: Unknown carry direction '{direction}'. Use forward/back/left/right.")
         return
 
     dx, dy = dir_map[direction]
     current_pos, current_orn = get_ee_pos()
+
+    if direction == "forward":
+        # At high Z (after lift), the arm's X-reach is nearly exhausted at x≈0.75.
+        # Lower to a carry height where the workspace has ample X extension,
+        # then slide forward.  Push tests confirm x=0.90 is reachable at z=0.35,
+        # so z=0.45 gives good clearance while remaining well within workspace.
+        CARRY_HEIGHT = 0.45
+        if current_pos[2] > CARRY_HEIGHT + 0.04:
+            move_ee_smooth(
+                [current_pos[0], current_pos[1], CARRY_HEIGHT],
+                current_orn, steps=300
+            )
+            current_pos, current_orn = get_ee_pos()
+        target_pos = [current_pos[0] + distance, current_pos[1], current_pos[2]]
+        print(f"Carrying {direction} {distance:.2f}m...")
+        move_ee_smooth(target_pos, current_orn, steps=400)
+        return
+
     target_pos = [
         current_pos[0] + dx * distance,
         current_pos[1] + dy * distance,

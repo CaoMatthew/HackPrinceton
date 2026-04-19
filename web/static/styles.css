@@ -101,6 +101,48 @@ body {
   letter-spacing: 0.08em;
 }
 
+.top-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.gui-status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.gui-status-label {
+  transition: color 0.3s;
+}
+
+.status-dot.starting {
+  border-color: #ffaa00;
+  background: #ffaa00;
+  box-shadow: 0 0 10px rgba(255, 170, 0, 0.5);
+}
+
+.gui-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.btn-start {
+  border-color: #00ff88;
+  background: rgba(0, 255, 136, 0.08);
+  color: #00ff88;
+}
+.btn-start:hover {
+  background: rgba(0, 255, 136, 0.18);
+}
+
 .pill {
   font-family: var(--font-mono);
   font-size: 0.65rem;
@@ -398,6 +440,31 @@ ul.action-list li::marker {
   color: var(--neon-red);
 }
 
+/* Live working stage */
+.stage-working {
+  opacity: 0.85;
+}
+
+.xray-working {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.blink {
+  color: var(--neon-blue);
+  animation: blink-cursor 0.9s step-end infinite;
+}
+
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
 .empty-xray {
   padding: 2rem 1rem;
   text-align: center;
@@ -439,14 +506,14 @@ ul.action-list li::marker {
 }
 
 .session-log {
-  max-height: 180px;
+  max-height: 280px;
   overflow-y: auto;
   border: 2px solid var(--steel);
   background: var(--void);
   padding: 0.5rem 0.6rem;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.4rem;
 }
 
 .session-entry {
@@ -454,18 +521,72 @@ ul.action-list li::marker {
   font-size: 0.68rem;
   line-height: 1.35;
   color: var(--muted);
-  border-left: 2px solid var(--neon-blue);
+  border-left: 2px solid var(--steel);
   padding-left: 0.5rem;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.1rem;
 }
 
 .session-entry .ts {
   color: var(--neon-blue);
   letter-spacing: 0.06em;
-  margin-right: 0.35rem;
+  margin-right: 0.5rem;
+  flex-shrink: 0;
 }
 
 .session-entry .msg {
   color: var(--text);
+}
+
+.session-entry .msg.muted {
+  color: var(--muted);
+}
+
+.session-entry .log-label {
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin-right: 0.5rem;
+  font-size: 0.65rem;
+  flex-shrink: 0;
+}
+
+/* Command entry */
+.session-entry.cmd {
+  border-left-color: var(--neon-blue);
+}
+.session-entry.cmd .cmd-label {
+  color: var(--neon-blue);
+}
+
+/* Working */
+.session-entry.working {
+  border-left-color: #ffaa00;
+}
+.session-entry.working .working-label {
+  color: #ffaa00;
+}
+
+/* Ready / success */
+.session-entry.ready {
+  border-left-color: #00ff88;
+}
+.session-entry.ready .ready-label {
+  color: #00ff88;
+}
+
+/* Error */
+.session-entry.error {
+  border-left-color: var(--neon-red);
+}
+.session-entry.error .error-label {
+  color: var(--neon-red);
+}
+
+/* Info / muted */
+.session-entry.info {
+  border-left-color: var(--steel);
 }
 
 .session-empty {
@@ -473,4 +594,53 @@ ul.action-list li::marker {
   font-size: 0.65rem;
   color: var(--muted);
   font-style: italic;
+}
+
+/* Session header row */
+.session-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.btn-ghost {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: none;
+  border: 1px solid var(--steel);
+  color: var(--muted);
+  padding: 0.2rem 0.45rem;
+  cursor: pointer;
+}
+.btn-ghost:hover {
+  border-color: var(--neon-blue);
+  color: var(--neon-blue);
+}
+
+/* Exit code badges in X-ray */
+.exit-ok {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid #00ff88;
+  color: #00ff88;
+  background: rgba(0, 255, 136, 0.08);
+  margin-bottom: 0.6rem;
+}
+
+.exit-err {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--neon-red);
+  color: var(--neon-red);
+  background: var(--neon-red-dim);
+  margin-bottom: 0.6rem;
 }
