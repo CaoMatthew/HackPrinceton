@@ -372,11 +372,11 @@ def place(target_pos):
 
 
 def push(target_obj=None, direction="forward", distance=0.1):
-    """Push/slide an object along a surface using the closed gripper as a paddle.
+    """Push/slide an object along a surface using the hand as a paddle.
 
-    The arm navigates to the opposite side of the object from the push
-    direction, closes the gripper into a flat paddle, then translates
-    horizontally to push the object.
+    The arm navigates to the opposite side of the object, closes the
+    gripper, descends so the hand body contacts the object, then
+    translates horizontally to push it.
 
     Args:
         target_obj: PyBullet body ID. If None, uses tracked obj_id.
@@ -390,10 +390,10 @@ def push(target_obj=None, direction="forward", distance=0.1):
         right   = +Y
 
     Design notes:
-        - Approaches from the opposite side of the push direction
-        - Keeps wrist perpendicular to avoid hitting the table
-        - Uses object's actual Z height for approach (stays on surface)
-        - Offset distance = 0.08m from object center for approach
+        - The hand body (link 8) is 0.065m above link 11
+        - Closed gripper fingers extend ~0.04m below the hand
+        - The whole hand+fingers assembly acts as a flat paddle
+        - Approach from 0.12m away to avoid hitting the block on descent
     """
     oid = target_obj if target_obj is not None else obj_id
     actual_pos = get_object_pos(oid)
@@ -413,23 +413,26 @@ def push(target_obj=None, direction="forward", distance=0.1):
         return
 
     dx, dy = dir_map[direction]
-    approach_offset = 0.08  # how far from object center to start
+    approach_offset = 0.12  # clearance from object center
 
     print(f"Pushing object {direction} by {distance:.2f}m")
-
-    # 1. Move above the approach point (opposite side of push direction)
-    approach_pos = [
-        actual_pos[0] - dx * approach_offset,
-        actual_pos[1] - dy * approach_offset,
-        actual_pos[2] + 0.15  # hover above
-    ]
     target_orn = p.getQuaternionFromEuler(PERP_DOWN_ORN)
-    move_ee_smooth(approach_pos, target_orn, steps=400)
 
-    # 2. Close gripper to form a flat paddle
+    # 1. Close gripper first (forms a solid paddle)
     close_gripper(force=GRIPPER_FORCE_OPEN, max_steps=60, min_warmup=0, settle_threshold=5)
 
-    # 3. Descend to object height (finger pads will be at obj_z + 0.027)
+    # 2. Move above the approach point (opposite side of push direction)
+    approach_hover = [
+        actual_pos[0] - dx * approach_offset,
+        actual_pos[1] - dy * approach_offset,
+        actual_pos[2] + 0.15
+    ]
+    move_ee_smooth(approach_hover, target_orn, steps=400)
+
+    # 3. Descend to contact height
+    # Target link 11 at object center Z. The hand body and closed
+    # fingers extend above this, so the solid parts of the gripper
+    # will be at the object's height and can push it.
     contact_pos = [
         actual_pos[0] - dx * approach_offset,
         actual_pos[1] - dy * approach_offset,
@@ -444,7 +447,7 @@ def push(target_obj=None, direction="forward", distance=0.1):
         contact_pos[1] + dy * (approach_offset + distance),
         contact_pos[2]
     ]
-    move_ee_smooth(push_end, target_orn, steps=400)
+    move_ee_smooth(push_end, target_orn, steps=600)
 
     # 5. Retreat upward
     retreat_pos = [push_end[0], push_end[1], push_end[2] + 0.15]
