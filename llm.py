@@ -6,8 +6,8 @@ import warnings
 warnings.filterwarnings("ignore")
 
 GEMINI_API_KEY = "AIzaSyACqKTs6AV4NzK5x3dHL8Gn9B6SM6ooBEE"
-K2_API_KEY = os.getenv("K2_API_KEY", "")
-K2_API_URL = os.getenv("K2_API_URL", "")
+K2_API_KEY     = "IFM-PlDLM6LbxnbEEQfK"
+K2_API_URL     = "https://api.k2think.ai/v1/chat/completions"
 
 # --- Configure Gemini ---
 genai.configure(api_key=GEMINI_API_KEY)
