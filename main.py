@@ -3,6 +3,8 @@ import pybullet_data
 import time
 
 from scene import scene
+from llm import generate_plan
+import actions
 
 # ---------------- SETUP ----------------
 p.connect(p.GUI)
@@ -19,6 +21,7 @@ p.resetDebugVisualizerCamera(
 )
 
 p.setGravity(0, 0, -9.8)
+p.setRealTimeSimulation(1)
 
 # ---------------- OBJECT ----------------
 mug = p.loadURDF("cube_small.urdf", [0.5, 0, 0.1])
@@ -27,61 +30,79 @@ mug = p.loadURDF("cube_small.urdf", [0.5, 0, 0.1])
 def draw_point(pos, color=[1, 0, 0]):
     offset = 0.03
 
-    # X axis
-    p.addUserDebugLine(
-        [pos[0] - offset, pos[1], pos[2]],
-        [pos[0] + offset, pos[1], pos[2]],
-        color, 2
-    )
+    p.addUserDebugLine([pos[0]-offset, pos[1], pos[2]],
+                       [pos[0]+offset, pos[1], pos[2]], color, 2)
+    p.addUserDebugLine([pos[0], pos[1]-offset, pos[2]],
+                       [pos[0], pos[1]+offset, pos[2]], color, 2)
+    p.addUserDebugLine([pos[0], pos[1], pos[2]-offset],
+                       [pos[0], pos[1], pos[2]+offset], color, 2)
 
-    # Y axis
-    p.addUserDebugLine(
-        [pos[0], pos[1] - offset, pos[2]],
-        [pos[0], pos[1] + offset, pos[2]],
-        color, 2
-    )
+draw_point(scene["mug"]["body"], [0, 1, 0])
+draw_point(scene["mug"]["handle"], [1, 0, 0])
 
-    # Z axis
-    p.addUserDebugLine(
-        [pos[0], pos[1], pos[2] - offset],
-        [pos[0], pos[1], pos[2] + offset],
-        color, 2
-    )
+# ---------------- INIT ACTIONS ----------------
+actions.init(robot)
 
-# Draw scene points
-draw_point(scene["mug"]["body"], [0, 1, 0])     # green = body
-draw_point(scene["mug"]["handle"], [1, 0, 0])   # red = handle
+# ---------------- EXECUTION ----------------
+def execute_plan(code):
+    print("\nRAW OUTPUT:\n", code)
 
-# IK Controls
-endEffectorIndex = 11  # Panda
+    lines = code.split("\n")
+    plan = []
 
-# Move ABOVE the handle (important)
-handle_pos = scene["mug"]["handle"]
-targetPos = [
-    handle_pos[0],
-    handle_pos[1],
-    handle_pos[2] + 0.1  # hover above
-]
+    # ✅ Extract ONLY valid commands (ignore everything else)
+    for line in lines:
+        line = line.strip()
 
-# Solve IK
-jointPoses = p.calculateInverseKinematics(
-    robot,
-    endEffectorIndex,
-    targetPos
-)
+        # remove comments
+        if "#" in line:
+            line = line.split("#")[0].strip()
 
-# Move arm
-for step in range(200):
-    for i in range(len(jointPoses)):
-        p.setJointMotorControl2(
-            robot,
-            i,
-            p.POSITION_CONTROL,
-            targetPosition=jointPoses[i]
-        )
-    p.stepSimulation()
-    time.sleep(1/240)
+        if (
+            line.startswith("move_to(") or
+            line.startswith("grasp(") or
+            line.startswith("lift(") or
+            line.startswith("place(")
+        ):
+            plan.append(line)
 
+    # 🔥 KEEP ONLY FIRST VALID PLAN (max 3 steps)
+    plan = plan[:3]
+
+    print("\nFINAL PLAN:")
+    for p in plan:
+        print(p)
+
+    # ✅ Execute ONLY ONCE
+    for line in plan:
+        try:
+            print("Executing:", line)
+            eval(line, {}, {
+                "move_to": actions.move_to,
+                "grasp": actions.grasp,
+                "lift": actions.lift,
+                "place": actions.place
+            })
+        except Exception as e:
+            print("Execution error:", e)
+
+# ---------------- MAIN LOOP ----------------
 while True:
-    p.stepSimulation()
-    time.sleep(1/240)
+    task = input("\nEnter command (or 'q' to quit): ")
+
+    if task.lower() == "q":
+        break
+
+    print("\n⏳ Thinking...")
+
+    try:
+        plan = generate_plan(task)
+        execute_plan(plan)
+    except Exception as e:
+        print("Error:", e)
+
+    print("\n--- Done ---\n")
+
+# ---------------- CLEAN EXIT ----------------
+p.disconnect()
+print("Simulation ended.")
