@@ -13,6 +13,13 @@ p.setAdditionalSearchPath(pybullet_data.getDataPath())
 plane = p.loadURDF("plane.urdf")
 robot = p.loadURDF("franka_panda/panda.urdf", useFixedBase=True)
 
+#TEST ACTIONS
+actions.init(robot)
+
+actions.move_to("mug.handle")
+actions.grasp("mug.handle")
+actions.lift(0.2)
+
 p.resetDebugVisualizerCamera(
     cameraDistance=1.5,
     cameraYaw=50,
